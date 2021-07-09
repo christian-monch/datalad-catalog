@@ -1,5 +1,4 @@
-// JSON-LD data
-const url = 'https://raw.githubusercontent.com/psychoinformatics-de/studyforrest-www/master/content/metadata/studyforrest.json';
+// Data
 const metadata_dir = './metadata';
 const json_file = metadata_dir + '/dataset_obj.json';
 
@@ -35,9 +34,19 @@ Vue.component("tree-item", {
       // this.selectedDataset = []
       this.$root.selectedDataset = obj;
       this.$root.dataPath.push(obj.short_name);
-      
-    },   
+    },
+
   }
+});
+
+
+const routes = [
+  // { path: '/foo', component: Foo },
+  // { path: '/bar', component: Bar }
+];
+
+const router = new VueRouter({
+  routes: routes
 });
 
 
@@ -90,7 +99,8 @@ var demo = new Vue({
   },
   beforeMount(){
     this.readTextFile(json_file)
-  }
+  },
+  router
 });
 
 
