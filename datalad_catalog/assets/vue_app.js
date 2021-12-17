@@ -79,47 +79,85 @@ const datasetView = {
       tag_options_filtered: [],
       tag_options_available: [],
       popoverShow: false,
+      subdatasets:[],
       subdatasets_ready: false,
-      dataset_ready: false
+      dataset_ready: false,
+      files_ready: false,
+      tags_ready: false
     };
+  },
+  watch: {
+    subdatasets_ready: function (newVal, oldVal) {
+      // do something
+      if (newVal) {
+        console.log("subdatasets fetched!")
+        this.subdatasets = this.selectedDataset.subdatasets;
+        console.log("from watcher")
+        console.log(this.subdatasets)
+        tags = this.tag_options;
+        this.subdatasets.forEach(
+          (subds, index) => {
+            console.log(index + '; ' + subds)
+            if (subds.available == "true") {
+              tags = tags.concat(subds.keywords.filter((item) => tags.indexOf(item) < 0))
+            }
+          }
+        );
+        this.tag_options = tags;
+        this.tag_options_filtered = this.tag_options;
+        this.tag_options_available = this.tag_options;
+        this.tags_ready = true;
+      }
+    },
   },
   computed: {
     displayData: function () {
       // TODO: some of these methods/steps should be moved to the generatpr tool. e.g. shortname
-      dataset = this.selectedDataset;
-      disp_dataset = {};
-      // Populate short_name
-      if (!dataset.hasOwnProperty("short_name") || !dataset["short_name"]) {
-        disp_dataset["short_name"] = (dataset["name"].length > 30 ? dataset["name"].substring(0,30)+'...' : dataset["name"])
-      } else {
-        disp_dataset["short_name"] = dataset["short_name"]
-      }
-      // Display breadcrums and dataset name
-      if (dataset.hasOwnProperty("root_dataset_id")) {
-        disp_dataset["display_name"] = ' / ' + dataset["dataset_path"].replace('/', ' / ');
-        disp_dataset["root_dataset"] = false;
-        // this.dataPath.push(dataset.short_name);
-      } else {
+      if (this.dataset_ready) {
+        dataset = this.selectedDataset;
+        disp_dataset = {};
+        // Populate short_name
+        if (!dataset.hasOwnProperty("short_name") || !dataset["short_name"]) {
+          disp_dataset["short_name"] = (dataset["name"].length > 30 ? dataset["name"].substring(0,30)+'...' : dataset["name"])
+        } else {
+          disp_dataset["short_name"] = dataset["short_name"]
+        }
         disp_dataset["display_name"] = ' - ' + dataset["short_name"]
-        disp_dataset["root_dataset"] = true;
-      }
-      // DOI
-      if (!dataset.hasOwnProperty("doi") || !dataset["doi"]) {
-        disp_dataset["doi"] = "not available"
-      }
-      // License
-      if (!dataset.hasOwnProperty("license") || !dataset["license"].hasOwnProperty("name") || !dataset["license"]["name"]) {
-        disp_dataset["license"] = "not available"
-      }
+        // Display breadcrums and dataset name
+        // if (dataset.hasOwnProperty("root_dataset_id")) {
+        //   disp_dataset["display_name"] = ' / ' + dataset["dataset_path"].replace('/', ' / ');
+        //   disp_dataset["root_dataset"] = false;
+        //   // this.dataPath.push(dataset.short_name);
+        // } else {
+        //   disp_dataset["display_name"] = ' - ' + dataset["short_name"]
+        //   disp_dataset["root_dataset"] = true;
+        // }
+        // DOI
+        if (!dataset.hasOwnProperty("doi") || !dataset["doi"]) {
+          disp_dataset["doi"] = "not available"
+        }
+        // License
+        if (!dataset.hasOwnProperty("license") || !dataset["license"].hasOwnProperty("name") || !dataset["license"]["name"]) {
+          disp_dataset["license"] = "not available"
+        }
+        // Extracted time
+        disp_dataset.metadata_extracted = this.getDateFromUTCseconds(dataset.extraction_time);
+        // ID and version
+        id_and_version = dataset.dataset_id + '-' + dataset.dataset_version;
+        disp_dataset.hash = md5(id_and_version);
+        // Github / gitlab / url / binder
+        disp_dataset.is_github = false;
+        disp_dataset.is_gitlab = false;
+        if (dataset.url.toLowerCase().indexOf("github") >= 0) {
+          disp_dataset.is_github = true;
+        }
 
-      disp_dataset.metadata_extracted = this.getDateFromUTCseconds(dataset.extraction_time);
-      id_and_version = dataset.dataset_id + '-' + dataset.dataset_version;
-      disp_dataset.hash = md5(id_and_version);
-      return disp_dataset
+        return disp_dataset
+      }
     },
     filteredSubdatasets() {
-      subdatasets = this.selectedDataset.subdatasets;
-      return subdatasets.filter(c => {
+      all_subdatasets = this.subdatasets.filter(obj => obj.available == "true")
+      return all_subdatasets.filter(c => {
         if(this.search_text == '') return true;
         return ( (c.dirs_from_path[c.dirs_from_path.length - 1].toLowerCase().indexOf(this.search_text.toLowerCase()) >= 0)
                   || (c.authors.some(e => e.givenName.toLowerCase().indexOf(this.search_text.toLowerCase()) >= 0)) 
@@ -240,17 +278,27 @@ const datasetView = {
     },
     validator(tag) {
       return this.tag_options_available.indexOf(tag) >= 0
+    },
+    async getFiles() {
+      this.files_ready = false;
+      file_hash = this.selectedDataset.children;
+      file = metadata_dir + '/' + file_hash + '.json';
+      response = await fetch(file);
+      text = await response.text();
+      obj = JSON.parse(text);
+      this.$root.selectedDataset.tree = obj["children"]
+      this.files_ready = true;
     }
   },
   async beforeRouteUpdate(to, from, next) {
     this.tabIndex = 0;
     this.subdatasets_ready = false;
-    file = metadata_dir + '/' + to.params.blobId + '.json'
+    file = metadata_dir + '/' + to.params.blobId + '.json';
     response = await fetch(file);
     text = await response.text();
     this.$root.selectedDataset = JSON.parse(text);
     this.dataset_ready = true;
-    this.tag_options = this.$root.selectedDataset["subdataset_keywords"];
+    // tags = this.tag_options
 
     if (this.$root.selectedDataset.hasOwnProperty("subdatasets")
         && this.$root.selectedDataset.subdatasets instanceof Array
@@ -259,17 +307,29 @@ const datasetView = {
       subds_json = await grabSubDatasets(this.$root);
       subds_json.forEach(
         (subds, index) => {
-          this.$root.selectedDataset.subdatasets[index].extraction_time = subds_json[index].extraction_time;
-          this.$root.selectedDataset.subdatasets[index].name = subds_json[index].name;
-          this.$root.selectedDataset.subdatasets[index].short_name = subds_json[index].short_name;
-          this.$root.selectedDataset.subdatasets[index].doi = subds_json[index].doi;
-          this.$root.selectedDataset.subdatasets[index].license = subds_json[index].license;
-          this.$root.selectedDataset.subdatasets[index].authors = subds_json[index].authors;
-          this.$root.selectedDataset.subdatasets[index].keywords = subds_json[index].keywords;
-          this.$root.selectedDataset.subdatasets[index].dirs_from_path = subds_json[index].dirs_from_path;
+          if (subds_json[index] != "unavailable") {
+            this.$root.selectedDataset.subdatasets[index].extraction_time = subds_json[index].extraction_time;
+            this.$root.selectedDataset.subdatasets[index].name = subds_json[index].name;
+            this.$root.selectedDataset.subdatasets[index].short_name = subds_json[index].short_name;
+            this.$root.selectedDataset.subdatasets[index].doi = subds_json[index].doi;
+            this.$root.selectedDataset.subdatasets[index].license = subds_json[index].license;
+            this.$root.selectedDataset.subdatasets[index].authors = subds_json[index].authors;
+            this.$root.selectedDataset.subdatasets[index].keywords = subds_json[index].keywords;
+            this.$root.selectedDataset.subdatasets[index].available = "true";
+            // tags = tags.concat(subds_json[index].keywords.filter((item) => tags.indexOf(item) < 0))
+
+          }
+          else {
+            this.$root.selectedDataset.subdatasets[index].available = "false";
+          }
         }
       );
+      // this.tag_options = tags;
       this.subdatasets_ready = true;
+      // console.log(this.tag_options)
+    }
+    else {
+      this.subdatasets_ready
     }
     next();
   },
@@ -280,21 +340,29 @@ const datasetView = {
     text = await response.text();
     app.selectedDataset = JSON.parse(text);
     this.dataset_ready = true;
-    this.tag_options = app.selectedDataset["subdataset_keywords"];
+    // tags = this.tag_options;
     subds_json = await grabSubDatasets(app);
     subds_json.forEach(
       (subds, index) => {
-        this.$root.selectedDataset.subdatasets[index].extraction_time = subds_json[index].extraction_time;
-        this.$root.selectedDataset.subdatasets[index].name = subds_json[index].name;
-        this.$root.selectedDataset.subdatasets[index].short_name = subds_json[index].short_name;
-        this.$root.selectedDataset.subdatasets[index].doi = subds_json[index].doi;
-        this.$root.selectedDataset.subdatasets[index].license = subds_json[index].license;
-        this.$root.selectedDataset.subdatasets[index].authors = subds_json[index].authors;
-        this.$root.selectedDataset.subdatasets[index].keywords = subds_json[index].keywords;
-        this.$root.selectedDataset.subdatasets[index].dirs_from_path = subds_json[index].dirs_from_path;
+        if (subds_json[index] != "unavailable") {
+          this.$root.selectedDataset.subdatasets[index].extraction_time = subds_json[index].extraction_time;
+          this.$root.selectedDataset.subdatasets[index].name = subds_json[index].name;
+          this.$root.selectedDataset.subdatasets[index].short_name = subds_json[index].short_name;
+          this.$root.selectedDataset.subdatasets[index].doi = subds_json[index].doi;
+          this.$root.selectedDataset.subdatasets[index].license = subds_json[index].license;
+          this.$root.selectedDataset.subdatasets[index].authors = subds_json[index].authors;
+          this.$root.selectedDataset.subdatasets[index].keywords = subds_json[index].keywords;
+          this.$root.selectedDataset.subdatasets[index].available = "true";
+          // tags = tags.concat(subds_json[index].keywords.filter((item) => tags.indexOf(item) < 0))
+        }
+        else {
+          this.$root.selectedDataset.subdatasets[index].available = "false";
+        }
       }
     );
+    // this.tag_options = tags;
     this.subdatasets_ready = true;
+    // console.log(this.tag_options)
   },
   mounted() {
     this.tag_options_filtered = this.tag_options;
@@ -417,13 +485,55 @@ async function grabSubDatasets(app) {
     id_and_version = subds.dataset_id + '-' + subds.dataset_version;
     hash = md5(id_and_version);
     subds_file = metadata_dir + '/' + hash + '.json';
-    subds_response = await fetch(subds_file);
-    subds_text = await subds_response.text();
-    subds_json[index] = JSON.parse(subds_text);
+    try {
+
+      subds_response = await fetch(subds_file);
+      subds_text = await subds_response.text();
+      // console.log(subds_text)
+
+      // fetch('/users')
+      // // .then(res => res.json()) // comment this out for now
+      // .then(res => res.text())          // convert to plain text
+      // .then(text => console.log(text))
+    }
+    catch (e) {
+      console.error(e);
+    }
+    finally {
+      try {
+        subds_json[index] = JSON.parse(subds_text);
+      }
+      catch (er) {
+        console.error(er);
+        subds_json[index] = "unavailable";
+      }
+      console.log(subds_json[index])
+    }
   }));
   return subds_json
 }
 
+
+
+// async function thisThrows() {
+//   throw new Error("Thrown from thisThrows()");
+// }
+
+// async function myFunctionThatCatches() {
+//   try {
+//       return await thisThrows(); // <-- Notice we added here the "await" keyword.
+//   } catch (e) {
+//       console.error(e);
+//   } finally {
+//       console.log('We do cleanup here');
+//   }
+//   return "Nothing found";
+// }
+
+// async function run() {
+//   const myValue = await myFunctionThatCatches();
+//   console.log(myValue);
+// }
 
 /*
 
