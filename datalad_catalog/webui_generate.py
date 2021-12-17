@@ -666,7 +666,7 @@ def core_parse_dataset(src_object, dest_object, schema_file):
     if ds_info and "distribution" in ds_info:
         origin = next((item for item in ds_info["distribution"]
                        if "name" in item and item["name"] == "origin"), False)
-        if origin:
+        if origin and "url" in origin:
             dest_object["url"] = origin["url"]
     # Populate subdatasets field
     sep = os.path.sep
